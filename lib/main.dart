@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
-
+import 'screens/customer_home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -247,76 +247,6 @@ class OtpScreen extends StatelessWidget {
   }
 }
 
-class CustomerHomeScreen extends StatelessWidget {
-  const CustomerHomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.black,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'TAKSIO',
-                    style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 2),
-                  ),
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(color: AppColors.darkGray, borderRadius: BorderRadius.circular(14)),
-                    child: const Icon(Icons.person, color: AppColors.yellow),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 40),
-              Expanded(
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(color: AppColors.darkGray, borderRadius: BorderRadius.circular(28)),
-                  child: const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.map, color: AppColors.yellow, size: 90),
-                      SizedBox(height: 20),
-                      Text(
-                        'Konumun Alınıyor',
-                        style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800),
-                      ),
-                      SizedBox(height: 10),
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 30),
-                        child: Text(
-                          'Harita ekranı ve yakındaki taksiler burada görünecek.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white70, fontSize: 16, height: 1.4),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              TaksioButton(
-                text: 'Taksi Çağır',
-                backgroundColor: AppColors.yellow,
-                textColor: Colors.black,
-                onPressed: () {},
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class TaksioLogo extends StatelessWidget {
   const TaksioLogo({super.key});
