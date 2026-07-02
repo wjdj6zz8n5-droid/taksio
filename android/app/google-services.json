@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "846663692598",
+    "project_id": "taksio-ebc54",
+    "storage_bucket": "taksio-ebc54.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:846663692598:android:1d401fee242d657b0a4397",
+        "android_client_info": {
+          "package_name": "com.example.taksio"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBmpzg61ag33_ogYyoHj3vHqoK79XERbZ8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
