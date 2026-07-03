@@ -4,6 +4,8 @@ import 'package:latlong2/latlong.dart';
 
 import '../services/location_service.dart';
 import '../theme/app_colors.dart';
+import 'destination_search_screen.dart';
+import 'map_picker_screen.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
@@ -14,6 +16,8 @@ class CustomerHomeScreen extends StatefulWidget {
 
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   LatLng? currentLocation;
+  LatLng? destinationLocation;
+  String? destinationAddress;
 
   @override
   void initState() {
@@ -23,9 +27,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
   Future<void> loadLocation() async {
     final location = await LocationService.getCurrentLocation();
-    setState(() {
-      currentLocation = location;
-    });
+    if (!mounted) return;
+    setState(() => currentLocation = location);
   }
 
   List<LatLng> getNearbyTaxis(LatLng center) {
@@ -36,6 +39,76 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       LatLng(center.latitude - 0.0024, center.longitude - 0.0013),
       LatLng(center.latitude + 0.0030, center.longitude + 0.0004),
     ];
+  }
+
+  Future<void> openDestinationOptions() async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: const BoxDecoration(
+            color: AppColors.black,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.search, color: AppColors.yellow),
+                  title: const Text('Adres Ara', style: TextStyle(color: Colors.white)),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+
+                    final address = await Navigator.push<String>(
+                      context,
+                      MaterialPageRoute(builder: (_) => const DestinationSearchScreen()),
+                    );
+
+                    if (!mounted) return;
+
+                    if (address != null) {
+                      setState(() {
+                        destinationAddress = address;
+                        destinationLocation = null;
+                      });
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.map, color: AppColors.yellow),
+                  title: const Text('Haritadan Konum Seç', style: TextStyle(color: Colors.white)),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+
+                    final location = await Navigator.push<LatLng>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MapPickerScreen(
+                          initialLocation: currentLocation ?? const LatLng(41.2862, 27.9994),
+                        ),
+                      ),
+                    );
+
+                    if (!mounted) return;
+
+                    if (location != null) {
+                      setState(() {
+                        destinationLocation = location;
+                        destinationAddress =
+                            'Haritadan seçilen konum';
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void showSearchingTaxiPanel() {
@@ -56,11 +129,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               SizedBox(height: 24),
               Text(
                 'En yakın taksi aranıyor...',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                ),
+                style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
               ),
               SizedBox(height: 10),
               Text(
@@ -96,16 +165,40 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 markers: [
                   Marker(
                     point: center,
-                    width: 60,
-                    height: 60,
+                    width: 48,
+                    height: 48,
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Colors.blue,
+                        color: Colors.blue.withOpacity(0.18),
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 4),
+                        border: Border.all(color: Colors.blue, width: 2),
+                      ),
+                      child: Center(
+                        child: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 3),
+                          ),
+                        ),
                       ),
                     ),
                   ),
+
+                  if (destinationLocation != null)
+                    Marker(
+                      point: destinationLocation!,
+                      width: 58,
+                      height: 58,
+                      child: const Icon(
+                        Icons.location_on,
+                        color: AppColors.yellow,
+                        size: 56,
+                      ),
+                    ),
+
                   ...taxis.map(
                     (taxi) => Marker(
                       point: taxi,
@@ -123,11 +216,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                             ),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.local_taxi,
-                          color: Colors.black,
-                          size: 28,
-                        ),
+                        child: const Icon(Icons.local_taxi, color: Colors.black, size: 28),
                       ),
                     ),
                   ),
@@ -135,6 +224,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               ),
             ],
           ),
+
           Positioned(
             top: 58,
             left: 20,
@@ -163,11 +253,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               ],
             ),
           ),
+
           Positioned(
             right: 20,
             bottom: 245,
             child: _circleButton(Icons.my_location),
           ),
+
           Positioned(
             left: 0,
             right: 0,
@@ -184,25 +276,22 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 children: [
                   const Text(
                     'Nereye gitmek istiyorsun?',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                    ),
+                    style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 18),
                   _locationField(
                     icon: Icons.my_location,
                     title: 'Alınacak konum',
-                    subtitle: currentLocation == null
-                        ? 'Konum alınıyor...'
-                        : 'Mevcut konumun seçildi',
+                    subtitle: currentLocation == null ? 'Konum alınıyor...' : 'Mevcut konumun seçildi',
                   ),
                   const SizedBox(height: 12),
-                  _locationField(
-                    icon: Icons.location_on,
-                    title: 'Gidilecek yer',
-                    subtitle: 'Adres veya konum seç',
+                  GestureDetector(
+                    onTap: openDestinationOptions,
+                    child: _locationField(
+                      icon: Icons.location_on,
+                      title: 'Gidilecek yer',
+                      subtitle: destinationAddress ?? 'Adres veya konum seç',
+                    ),
                   ),
                   const SizedBox(height: 20),
                   SizedBox(
@@ -212,17 +301,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.yellow,
                         foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(18),
-                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                       ),
                       onPressed: showSearchingTaxiPanel,
                       child: const Text(
                         'Taksi Çağır',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                        ),
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
                       ),
                     ),
                   ),
@@ -267,14 +351,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15)),
+                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
                 const SizedBox(height: 4),
-                Text(subtitle,
-                    style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 13)),
               ],
             ),
           ),
