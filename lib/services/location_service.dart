@@ -3,13 +3,14 @@ import 'package:latlong2/latlong.dart';
 
 class LocationService {
   static Future<LatLng?> getCurrentLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final serviceEnabled =
+        await Geolocator.isLocationServiceEnabled();
 
     if (!serviceEnabled) {
       return null;
     }
 
-    LocationPermission permission = await Geolocator.checkPermission();
+    var permission = await Geolocator.checkPermission();
 
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -20,10 +21,16 @@ class LocationService {
       return null;
     }
 
-    Position position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 0,
+      ),
     );
 
-    return LatLng(position.latitude, position.longitude);
+    return LatLng(
+      position.latitude,
+      position.longitude,
+    );
   }
 }
