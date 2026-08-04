@@ -1,11 +1,17 @@
+import '../services/places_service.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
 
+import '../controllers/taxi_controller.dart';
+import '../models/taxi_vehicle.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/bottom_panel.dart';
+import '../widgets/driver_arrival_card.dart';
 import '../widgets/map_widget.dart';
+import '../widgets/searching_taxi_sheet.dart';
 import 'destination_search_screen.dart';
 import 'map_picker_screen.dart';
 
@@ -50,13 +56,68 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     });
   }
 
-  List<LatLng> getNearbyTaxis(LatLng center) {
+  List<TaxiVehicle> getNearbyTaxiVehicles(LatLng center) {
     return [
-      LatLng(center.latitude + 0.0020, center.longitude + 0.0015),
-      LatLng(center.latitude - 0.0018, center.longitude + 0.0022),
-      LatLng(center.latitude + 0.0012, center.longitude - 0.0020),
-      LatLng(center.latitude - 0.0024, center.longitude - 0.0013),
-      LatLng(center.latitude + 0.0030, center.longitude + 0.0004),
+      TaxiVehicle(
+        id: 'taxi_1',
+        plate: '59 ABC 47',
+        brand: 'Toyota',
+        model: 'Corolla',
+        color: 'Sarı',
+        location: LatLng(
+          center.latitude + 0.0020,
+          center.longitude + 0.0015,
+        ),
+        available: true,
+      ),
+      TaxiVehicle(
+        id: 'taxi_2',
+        plate: '59 T 1024',
+        brand: 'Renault',
+        model: 'Megane',
+        color: 'Sarı',
+        location: LatLng(
+          center.latitude - 0.0018,
+          center.longitude + 0.0022,
+        ),
+        available: true,
+      ),
+      TaxiVehicle(
+        id: 'taxi_3',
+        plate: '59 T 2047',
+        brand: 'Fiat',
+        model: 'Egea',
+        color: 'Sarı',
+        location: LatLng(
+          center.latitude + 0.0012,
+          center.longitude - 0.0020,
+        ),
+        available: true,
+      ),
+      TaxiVehicle(
+        id: 'taxi_4',
+        plate: '59 T 3551',
+        brand: 'Hyundai',
+        model: 'i20',
+        color: 'Sarı',
+        location: LatLng(
+          center.latitude - 0.0024,
+          center.longitude - 0.0013,
+        ),
+        available: true,
+      ),
+      TaxiVehicle(
+        id: 'taxi_5',
+        plate: '59 T 4182',
+        brand: 'Ford',
+        model: 'Focus',
+        color: 'Sarı',
+        location: LatLng(
+          center.latitude + 0.0030,
+          center.longitude + 0.0004,
+        ),
+        available: true,
+      ),
     ];
   }
 
@@ -84,7 +145,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Rota hesaplanamadı. Lütfen tekrar deneyin.'),
+          content: Text(
+            'Rota hesaplanamadı. Lütfen tekrar deneyin.',
+          ),
         ),
       );
 
@@ -150,11 +213,17 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     if (currentLocation == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Mevcut konum alınamadı.'),
+                          content: Text(
+                            'Mevcut konum alınamadı.',
+                          ),
                         ),
                       );
                       return;
                     }
+
+                    await context
+                        .read<TaxiController>()
+                        .cancelTaxi();
 
                     setState(() {
                       pickupLocation = currentLocation;
@@ -176,22 +245,34 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   onTap: () async {
                     Navigator.pop(sheetContext);
 
-                    final selectedLocation = await Navigator.push<LatLng>(
+                    final selectedLocation =
+                        await Navigator.push<LatLng>(
                       context,
                       MaterialPageRoute(
                         builder: (_) => MapPickerScreen(
                           initialLocation: pickupLocation ??
                               currentLocation ??
-                              const LatLng(41.2862, 27.9994),
+                              const LatLng(
+                                41.2862,
+                                27.9994,
+                              ),
                         ),
                       ),
                     );
 
-                    if (!mounted || selectedLocation == null) return;
+                    if (!mounted ||
+                        selectedLocation == null) {
+                      return;
+                    }
+
+                    await context
+                        .read<TaxiController>()
+                        .cancelTaxi();
 
                     setState(() {
                       pickupLocation = selectedLocation;
-                      pickupAddress = 'Haritadan seçilen alınacak konum';
+                      pickupAddress =
+                          'Haritadan seçilen alınacak konum';
                     });
 
                     await recalculateRouteIfNeeded();
@@ -234,26 +315,30 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   onTap: () async {
                     Navigator.pop(sheetContext);
 
-                    final address = await Navigator.push<String>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const DestinationSearchScreen(),
-                      ),
-                    );
+                    final selection =
+    await Navigator.push<PlaceSelection>(
+  context,
+  MaterialPageRoute(
+    builder: (_) =>
+        const DestinationSearchScreen(),
+  ),
+);
 
-                    if (!mounted || address == null) return;
+if (!mounted || selection == null) {
+  return;
+}
 
-                    setState(() {
-                      destinationAddress = address;
+await context
+    .read<TaxiController>()
+    .cancelTaxi();
 
-                      // Adres arama ekranı henüz koordinat döndürmediği için
-                      // gerçek rota hesaplanamıyor.
-                      destinationLocation = null;
-                      routePoints = [];
-                      distanceKm = null;
-                      durationMinutes = null;
-                      estimatedPrice = null;
-                    });
+setState(() {
+  destinationAddress = selection.address;
+});
+
+await calculateTripInfo(
+  selection.location,
+);
                   },
                 ),
                 ListTile(
@@ -268,21 +353,35 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   onTap: () async {
                     Navigator.pop(sheetContext);
 
-                    final selectedLocation = await Navigator.push<LatLng>(
+                    final selectedLocation =
+                        await Navigator.push<LatLng>(
                       context,
                       MaterialPageRoute(
                         builder: (_) => MapPickerScreen(
-                          initialLocation: destinationLocation ??
-                              pickupLocation ??
-                              currentLocation ??
-                              const LatLng(41.2862, 27.9994),
+                          initialLocation:
+                              destinationLocation ??
+                                  pickupLocation ??
+                                  currentLocation ??
+                                  const LatLng(
+                                    41.2862,
+                                    27.9994,
+                                  ),
                         ),
                       ),
                     );
 
-                    if (!mounted || selectedLocation == null) return;
+                    if (!mounted ||
+                        selectedLocation == null) {
+                      return;
+                    }
 
-                    await calculateTripInfo(selectedLocation);
+                    await context
+                        .read<TaxiController>()
+                        .cancelTaxi();
+
+                    await calculateTripInfo(
+                      selectedLocation,
+                    );
                   },
                 ),
               ],
@@ -293,76 +392,108 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
-  void showSearchingTaxiPanel() {
-    if (pickupLocation == null) {
+  Future<void> callTaxi() async {
+    final pickup = pickupLocation;
+    final destination = destinationLocation;
+
+    if (pickup == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Önce alınacak konumu seçin.'),
+          content: Text(
+            'Önce alınacak konumu seçin.',
+          ),
         ),
       );
       return;
     }
 
-    if (destinationLocation == null) {
+    if (destination == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Önce gidilecek konumu haritadan seçin.'),
+          content: Text(
+            'Önce gidilecek konumu haritadan seçin.',
+          ),
         ),
       );
       return;
     }
 
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(
-            color: AppColors.black,
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(32),
-            ),
-          ),
-          child: const Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(
-                color: AppColors.yellow,
-              ),
-              SizedBox(height: 24),
-              Text(
-                'En yakın taksi aranıyor...',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              SizedBox(height: 10),
-              Text(
-                'Bölgenizdeki uygun taksicilere çağrı gönderiliyor.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 15,
-                ),
-              ),
-              SizedBox(height: 24),
-            ],
-          ),
+    final taxis = getNearbyTaxiVehicles(pickup);
+
+    await context.read<TaxiController>().callTaxi(
+          taxis: taxis,
+          pickupLocation: pickup,
         );
-      },
+  }
+
+  void callDriver() {
+    final controller = context.read<TaxiController>();
+    final phone = controller.currentDriver?.phone;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          phone == null
+              ? 'Şoför telefon bilgisi bulunamadı.'
+              : 'Şoför aranıyor: $phone',
+        ),
+      ),
+    );
+  }
+
+  void messageDriver() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Mesajlaşma özelliği yakında eklenecek.',
+        ),
+      ),
+    );
+  }
+
+  void shareTrip() {
+    final controller = context.read<TaxiController>();
+
+    final driverName =
+        controller.currentDriver?.shortName ?? 'Şoför';
+    final plate =
+        controller.currentTaxi?.plate ?? 'Plaka bilinmiyor';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Yolculuk paylaşımı hazırlandı: '
+          '$driverName • $plate',
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final taxiController = context.watch<TaxiController>();
+
     final mapCenter = pickupLocation ??
         currentLocation ??
         const LatLng(41.2862, 27.9994);
 
-    final taxis = getNearbyTaxis(mapCenter);
+    final taxiVehicles =
+        getNearbyTaxiVehicles(mapCenter);
+
+    final mapTaxiLocations = taxiVehicles
+        .where(
+          (taxi) =>
+              taxi.id != taxiController.currentTaxi?.id,
+        )
+        .map((taxi) => taxi.location)
+        .toList();
+
+    final movingTaxi =
+        taxiController.movingTaxiLocation;
+
+    if (movingTaxi != null) {
+      mapTaxiLocations.add(movingTaxi);
+    }
 
     return Scaffold(
       backgroundColor: AppColors.black,
@@ -372,15 +503,17 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             center: mapCenter,
             currentLocation: mapCenter,
             destinationLocation: destinationLocation,
-            taxis: taxis,
+            taxis: mapTaxiLocations,
             routePoints: routePoints,
           ),
+
           Positioned(
             top: 58,
             left: 20,
             right: 20,
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment:
+                  MainAxisAlignment.spaceBetween,
               children: [
                 _circleButton(Icons.menu),
                 Container(
@@ -389,8 +522,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     vertical: 12,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.82),
-                    borderRadius: BorderRadius.circular(18),
+                    color: Colors.black.withValues(
+                      alpha: 0.82,
+                    ),
+                    borderRadius:
+                        BorderRadius.circular(18),
                   ),
                   child: const Text(
                     'TAKSIO',
@@ -406,34 +542,72 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               ],
             ),
           ),
+
           Positioned(
             right: 20,
             bottom: 245,
             child: GestureDetector(
-              onTap: () async {
-                await loadLocation();
-              },
-              child: _circleButton(Icons.my_location),
+              onTap: loadLocation,
+              child: _circleButton(
+                Icons.my_location,
+              ),
             ),
           ),
+
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
-            child: BottomPanel(
-              hasCurrentLocation: pickupLocation != null,
-              pickupAddress: pickupAddress,
-              destinationAddress: destinationAddress,
-              distanceKm: distanceKm,
-              durationMinutes: durationMinutes,
-              estimatedPrice: estimatedPrice,
-              onPickupTap: openPickupOptions,
-              onDestinationTap: openDestinationOptions,
-              onCallTaxiTap: showSearchingTaxiPanel,
+            child: _buildBottomContent(
+              taxiController,
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildBottomContent(
+    TaxiController controller,
+  ) {
+    if (controller.isSearching) {
+      return SearchingTaxiSheet(
+        onCancel: () {
+          controller.cancelTaxi();
+        },
+      );
+    }
+
+    final driver = controller.currentDriver;
+    final vehicle = controller.currentTaxi;
+
+    if (controller.driverAccepted &&
+        driver != null &&
+        vehicle != null) {
+     return DriverArrivalCard(
+  driver: driver,
+  vehicle: vehicle,
+  arrivalMinutes: controller.arrivalMinutes,
+  remainingDistanceKm: controller.remainingDistanceKm,
+  driverArrived: controller.driverArrived,
+  onCall: callDriver,
+  onMessage: messageDriver,
+  onShareTrip: shareTrip,
+);
+    }
+
+    return BottomPanel(
+      hasCurrentLocation:
+          pickupLocation != null,
+      pickupAddress: pickupAddress,
+      destinationAddress: destinationAddress,
+      distanceKm: distanceKm,
+      durationMinutes: durationMinutes,
+      estimatedPrice: estimatedPrice,
+      onPickupTap: openPickupOptions,
+      onDestinationTap:
+          openDestinationOptions,
+      onCallTaxiTap: callTaxi,
     );
   }
 
@@ -442,7 +616,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       width: 48,
       height: 48,
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.82),
+        color: Colors.black.withValues(
+          alpha: 0.82,
+        ),
         shape: BoxShape.circle,
       ),
       child: Icon(

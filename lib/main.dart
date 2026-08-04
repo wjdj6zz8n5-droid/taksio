@@ -1,15 +1,28 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import 'controllers/taxi_controller.dart';
 import 'firebase_options.dart';
 import 'screens/customer_home_screen.dart';
-void main() async {
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  runApp(const TaksioApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<TaxiController>(
+          create: (_) => TaxiController(),
+        ),
+      ],
+      child: const TaksioApp(),
+    ),
+  );
 }
 
 class TaksioApp extends StatelessWidget {
