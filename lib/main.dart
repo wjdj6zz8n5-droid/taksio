@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import 'controllers/taxi_controller.dart';
 import 'firebase_options.dart';
 import 'screens/customer_home_screen.dart';
+import 'screens/driver_shift_screen.dart';
+import 'screens/driver_registration_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -114,12 +116,18 @@ class WelcomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               TaksioButton(
-                text: 'Taksici Olarak Devam Et',
-                backgroundColor: AppColors.darkGray,
-                textColor: Colors.white,
-                onPressed: () {},
-              ),
-              const SizedBox(height: 24),
+  text: 'Taksici Olarak Devam Et',
+  backgroundColor: AppColors.darkGray,
+  textColor: Colors.white,
+  onPressed: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const DriverRegistrationScreen(),
+      ),
+    );
+  },
+),  
             ],
           ),
         ),
