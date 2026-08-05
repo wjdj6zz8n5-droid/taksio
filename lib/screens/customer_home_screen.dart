@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/taxi_controller.dart';
+import '../widgets/trip_started_sheet.dart';
 import '../models/taxi_vehicle.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
@@ -14,6 +15,7 @@ import '../widgets/map_widget.dart';
 import '../widgets/searching_taxi_sheet.dart';
 import 'destination_search_screen.dart';
 import 'map_picker_screen.dart';
+import '../widgets/trip_completed_sheet.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
@@ -577,9 +579,52 @@ await calculateTripInfo(
         },
       );
     }
+    if (controller.tripCompleted) {
+  return TripCompletedSheet(
+    finalPrice: estimatedPrice ?? 0,
+    onFinish: (
+      int rating,
+      List<String> reasons,
+      String comment,
+    ) async {
+      debugPrint('PUAN: $rating');
+      debugPrint('NEDENLER: $reasons');
+      debugPrint('YORUM: $comment');
 
-    final driver = controller.currentDriver;
-    final vehicle = controller.currentTaxi;
+      await controller.cancelTaxi();
+
+      if (!mounted) return;
+
+      setState(() {
+        destinationLocation = null;
+        destinationAddress = null;
+        routePoints = [];
+        distanceKm = null;
+        durationMinutes = null;
+        estimatedPrice = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Değerlendirmeniz için teşekkür ederiz.',
+          ),
+        ),
+      );
+    },
+  );
+}
+
+if (controller.tripStarted) {
+  return TripStartedSheet(
+    destination: destinationAddress ?? 'Gidilecek konum',
+    etaMinutes: controller.tripRemainingMinutes,
+    estimatedPrice: estimatedPrice ?? 0,
+  );
+}
+
+final driver = controller.currentDriver;
+final vehicle = controller.currentTaxi;
 
     if (controller.driverAccepted &&
         driver != null &&
@@ -593,6 +638,30 @@ await calculateTripInfo(
   onCall: callDriver,
   onMessage: messageDriver,
   onShareTrip: shareTrip,
+  onStartTrip: () {
+  final route = routePoints;
+  final distance = distanceKm;
+  final duration = durationMinutes;
+
+  if (route.length < 2 ||
+      distance == null ||
+      duration == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Yolculuk rotası hazır değil.',
+        ),
+      ),
+    );
+    return;
+  }
+
+  controller.startTrip(
+    routePoints: route,
+    totalDistanceKm: distance,
+    totalDurationMinutes: duration,
+  );
+},   
 );
     }
 

@@ -7,6 +7,7 @@ import '../theme/app_colors.dart';
 class DriverArrivalCard extends StatelessWidget {
   final Driver driver;
   final TaxiVehicle vehicle;
+
   final int arrivalMinutes;
   final double remainingDistanceKm;
   final bool driverArrived;
@@ -14,6 +15,7 @@ class DriverArrivalCard extends StatelessWidget {
   final VoidCallback onCall;
   final VoidCallback onMessage;
   final VoidCallback onShareTrip;
+  final VoidCallback onStartTrip;
 
   const DriverArrivalCard({
     super.key,
@@ -25,6 +27,7 @@ class DriverArrivalCard extends StatelessWidget {
     required this.onCall,
     required this.onMessage,
     required this.onShareTrip,
+    required this.onStartTrip,
   });
 
   @override
@@ -246,6 +249,34 @@ class DriverArrivalCard extends StatelessWidget {
                 ),
               ),
             ),
+
+            if (driverArrived) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton.icon(
+                  onPressed: onStartTrip,
+                  icon: const Icon(
+                    Icons.play_arrow,
+                  ),
+                  label: const Text(
+                    'Yolculuğu Başlat',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.yellow,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
