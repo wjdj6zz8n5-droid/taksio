@@ -6,16 +6,13 @@ import 'package:vibration/vibration.dart';
 
 import '../models/driver.dart';
 import '../models/taxi_vehicle.dart';
-import '../services/taxi_simulation_service.dart';
 
 class TaxiController extends ChangeNotifier {
-  final TaxiSimulationService _simulationService =
-      TaxiSimulationService();
-
   Driver? currentDriver;
   TaxiVehicle? currentTaxi;
 
   LatLng? movingTaxiLocation;
+  LatLng? activePickupLocation;
 
   double remainingDistanceKm = 0;
   double tripRemainingDistanceKm = 0;
@@ -29,7 +26,6 @@ class TaxiController extends ChangeNotifier {
   bool tripStarted = false;
   bool tripCompleted = false;
 
-  StreamSubscription<LatLng>? _arrivalMovementSubscription;
   Timer? _tripMovementTimer;
 
   List<LatLng> _activeTripRoute = [];
@@ -38,129 +34,104 @@ class TaxiController extends ChangeNotifier {
   int _currentTripPointIndex = 0;
   int _initialTripDurationMinutes = 0;
 
-  Future<void> callTaxi({
-    required List<TaxiVehicle> taxis,
-    required LatLng pickupLocation,
-  }) async {
-    await cancelTaxi(notify: false);
-
+  void startSearching() {
     isSearching = true;
     driverAccepted = false;
     driverArrived = false;
     tripStarted = false;
     tripCompleted = false;
 
-    arrivalMinutes = 0;
+    currentDriver = null;
+    currentTaxi = null;
+    movingTaxiLocation = null;
+    activePickupLocation = null;
+
     remainingDistanceKm = 0;
+    arrivalMinutes = 0;
 
     notifyListeners();
+  }
 
-    await Future<void>.delayed(
-      const Duration(seconds: 3),
-    );
+  void assignAcceptedDriver({
+    required Driver driver,
+    required TaxiVehicle vehicle,
+    required LatLng pickupLocation,
+  }) {
+    currentDriver = driver;
+    currentTaxi = vehicle;
 
-    currentTaxi = _simulationService.findNearestTaxi(
-      taxis: taxis,
-      pickup: pickupLocation,
-    );
-
-    if (currentTaxi == null) {
-      isSearching = false;
-      notifyListeners();
-      return;
-    }
-
-    currentDriver = const Driver(
-      id: 'driver_1',
-      firstName: 'Mehmet',
-      lastName: 'Sağlam',
-      phone: '05550000000',
-      photoUrl: '',
-      rating: 4.9,
-      tripCount: 2847,
-      isOnline: true,
-    );
-
-    movingTaxiLocation = currentTaxi!.location;
+    activePickupLocation = pickupLocation;
+    movingTaxiLocation = vehicle.location;
 
     remainingDistanceKm = const Distance().as(
       LengthUnit.Kilometer,
-      movingTaxiLocation!,
+      vehicle.location,
       pickupLocation,
     );
-
-    isSearching = false;
-    driverAccepted = true;
-    driverArrived = false;
 
     arrivalMinutes = _calculateArrivalMinutes(
       remainingDistanceKm,
     );
 
-    notifyListeners();
+    isSearching = false;
+    driverAccepted = true;
+    driverArrived = false;
+    tripStarted = false;
+    tripCompleted = false;
 
-    _startArrivalMovement(
-      pickupLocation: pickupLocation,
-    );
+    notifyListeners();
   }
 
-  void _startArrivalMovement({
-    required LatLng pickupLocation,
-  }) {
-    final start = movingTaxiLocation;
+  void updateDriverLocation(
+    LatLng newLocation,
+  ) {
+    movingTaxiLocation = newLocation;
 
-    if (start == null) {
-      return;
+    final pickup = activePickupLocation;
+
+    if (pickup != null && !driverArrived) {
+      remainingDistanceKm = const Distance().as(
+        LengthUnit.Kilometer,
+        newLocation,
+        pickup,
+      );
+
+      arrivalMinutes = _calculateArrivalMinutes(
+        remainingDistanceKm,
+      );
+
+      if (remainingDistanceKm <= 0.05) {
+        markDriverArrived();
+        return;
+      }
     }
 
-    _arrivalMovementSubscription?.cancel();
+    notifyListeners();
+  }
 
-    _arrivalMovementSubscription = _simulationService
-        .simulateTaxiMovement(
-          start: start,
-          destination: pickupLocation,
-          interval: const Duration(milliseconds: 700),
-          steps: 35,
-        )
-        .listen(
-      (location) {
-        movingTaxiLocation = location;
+  Future<void> markDriverArrived() async {
+    final pickup = activePickupLocation;
 
-        final remainingMeters = const Distance().as(
-          LengthUnit.Meter,
-          location,
-          pickupLocation,
-        );
+    if (pickup != null) {
+      movingTaxiLocation = pickup;
+    }
 
-        remainingDistanceKm = remainingMeters / 1000;
+    remainingDistanceKm = 0;
+    arrivalMinutes = 0;
 
-        arrivalMinutes = _calculateArrivalMinutes(
-          remainingDistanceKm,
-        );
+    isSearching = false;
+    driverAccepted = true;
+    driverArrived = true;
 
-        notifyListeners();
-      },
-      onDone: () async {
-        movingTaxiLocation = pickupLocation;
-        remainingDistanceKm = 0;
-        arrivalMinutes = 0;
-        driverArrived = true;
+    notifyListeners();
 
-        notifyListeners();
+    final hasVibrator = await Vibration.hasVibrator();
 
-        final hasVibrator = await Vibration.hasVibrator();
-
-        if (hasVibrator) {
-          await Vibration.vibrate(
-            pattern: [0, 250, 150, 250],
-          );
-        }
-      },
-      onError: (Object error) {
-        isSearching = false;
-        notifyListeners();
-      },
-    );
+    if (hasVibrator) {
+      await Vibration.vibrate(
+        pattern: [0, 250, 150, 250],
+      );
+    }
   }
 
   void startTrip({
@@ -176,23 +147,34 @@ class TaxiController extends ChangeNotifier {
 
     _tripMovementTimer?.cancel();
 
-    _activeTripRoute = List<LatLng>.from(routePoints);
+    _activeTripRoute =
+        List<LatLng>.from(routePoints);
+
     _remainingDistanceByPoint =
-        _calculateRemainingDistances(_activeTripRoute);
+        _calculateRemainingDistances(
+      _activeTripRoute,
+    );
 
     _currentTripPointIndex = 0;
-    _initialTripDurationMinutes = totalDurationMinutes;
+    _initialTripDurationMinutes =
+        totalDurationMinutes;
 
     tripStarted = true;
     tripCompleted = false;
 
-    tripRemainingDistanceKm = totalDistanceKm;
-    tripRemainingMinutes = totalDurationMinutes;
+    tripRemainingDistanceKm =
+        totalDistanceKm;
 
-    movingTaxiLocation = _activeTripRoute.first;
+    tripRemainingMinutes =
+        totalDurationMinutes;
+
+    movingTaxiLocation =
+        _activeTripRoute.first;
 
     notifyListeners();
 
+    // Yolculuk kısmındaki hareket şimdilik demo olarak kalıyor.
+    // Şoförün gerçek konum paylaşımını bağladığımızda bu timer kalkacak.
     _tripMovementTimer = Timer.periodic(
       const Duration(milliseconds: 650),
       (timer) {
@@ -206,10 +188,12 @@ class TaxiController extends ChangeNotifier {
         }
 
         movingTaxiLocation =
-            _activeTripRoute[_currentTripPointIndex];
+            _activeTripRoute[
+                _currentTripPointIndex];
 
         tripRemainingDistanceKm =
-            _remainingDistanceByPoint[_currentTripPointIndex];
+            _remainingDistanceByPoint[
+                _currentTripPointIndex];
 
         final completedRatio =
             _currentTripPointIndex /
@@ -252,7 +236,8 @@ class TaxiController extends ChangeNotifier {
 
   Future<void> _completeTrip() async {
     if (_activeTripRoute.isNotEmpty) {
-      movingTaxiLocation = _activeTripRoute.last;
+      movingTaxiLocation =
+          _activeTripRoute.last;
     }
 
     tripRemainingDistanceKm = 0;
@@ -263,16 +248,26 @@ class TaxiController extends ChangeNotifier {
 
     notifyListeners();
 
-    final hasVibrator = await Vibration.hasVibrator();
+    final hasVibrator =
+        await Vibration.hasVibrator();
 
     if (hasVibrator) {
       await Vibration.vibrate(
-        pattern: [0, 180, 100, 180, 100, 350],
+        pattern: [
+          0,
+          180,
+          100,
+          180,
+          100,
+          350,
+        ],
       );
     }
   }
 
-  int _calculateArrivalMinutes(double distanceKm) {
+  int _calculateArrivalMinutes(
+    double distanceKm,
+  ) {
     if (distanceKm <= 0.05) {
       return 0;
     }
@@ -291,9 +286,6 @@ class TaxiController extends ChangeNotifier {
   Future<void> cancelTaxi({
     bool notify = true,
   }) async {
-    await _arrivalMovementSubscription?.cancel();
-    _arrivalMovementSubscription = null;
-
     _tripMovementTimer?.cancel();
     _tripMovementTimer = null;
 
@@ -301,7 +293,9 @@ class TaxiController extends ChangeNotifier {
 
     currentDriver = null;
     currentTaxi = null;
+
     movingTaxiLocation = null;
+    activePickupLocation = null;
 
     remainingDistanceKm = 0;
     tripRemainingDistanceKm = 0;
@@ -317,6 +311,7 @@ class TaxiController extends ChangeNotifier {
 
     _activeTripRoute = [];
     _remainingDistanceByPoint = [];
+
     _currentTripPointIndex = 0;
     _initialTripDurationMinutes = 0;
 
@@ -327,7 +322,6 @@ class TaxiController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _arrivalMovementSubscription?.cancel();
     _tripMovementTimer?.cancel();
     Vibration.cancel();
     super.dispose();

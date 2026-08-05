@@ -17,12 +17,29 @@ class MapPickerScreen extends StatefulWidget {
 }
 
 class _MapPickerScreenState extends State<MapPickerScreen> {
+  static const LatLng cerkezkoyCenter = LatLng(
+    41.2862,
+    27.9994,
+  );
+
+  late final MapController mapController;
   late LatLng selectedLocation;
 
   @override
   void initState() {
     super.initState();
-    selectedLocation = widget.initialLocation;
+
+    mapController = MapController();
+
+    // iOS Simulator San Francisco konumu gönderse bile
+    // test aşamasında haritayı Çerkezköy'de açıyoruz.
+    selectedLocation = cerkezkoyCenter;
+  }
+
+  @override
+  void dispose() {
+    mapController.dispose();
+    super.dispose();
   }
 
   @override
@@ -32,18 +49,20 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
       body: Stack(
         children: [
           FlutterMap(
+            mapController: mapController,
             options: MapOptions(
-              initialCenter: widget.initialLocation,
+              initialCenter: cerkezkoyCenter,
               initialZoom: 16,
               onPositionChanged: (position, hasGesture) {
-                if (position.center != null) {
-                  selectedLocation = position.center!;
-                }
+                setState(() {
+                  selectedLocation = position.center;
+                });
               },
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate:
+                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.taksio',
               ),
             ],
@@ -69,7 +88,39 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                   color: AppColors.black,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.arrow_back, color: Colors.white),
+                child: const Icon(
+                  Icons.arrow_back,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+
+          Positioned(
+            right: 18,
+            top: 56,
+            child: GestureDetector(
+              onTap: () {
+                mapController.move(
+                  cerkezkoyCenter,
+                  16,
+                );
+
+                setState(() {
+                  selectedLocation = cerkezkoyCenter;
+                });
+              },
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: const BoxDecoration(
+                  color: AppColors.black,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.my_location,
+                  color: AppColors.yellow,
+                ),
               ),
             ),
           ),
@@ -89,7 +140,10 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                   ),
                 ),
                 onPressed: () {
-                  Navigator.pop(context, selectedLocation);
+                  Navigator.pop(
+                    context,
+                    selectedLocation,
+                  );
                 },
                 child: const Text(
                   'Konumu Onayla',

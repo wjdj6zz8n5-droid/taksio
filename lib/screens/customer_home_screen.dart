@@ -1,36 +1,55 @@
-import '../services/places_service.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'package:vibration/vibration.dart';
 
+import '../controllers/ride_request_controller.dart';
 import '../controllers/taxi_controller.dart';
-import '../widgets/trip_started_sheet.dart';
+import '../models/driver.dart';
 import '../models/taxi_vehicle.dart';
+import '../repositories/driver_location_repository.dart';
 import '../services/location_service.dart';
+import '../services/places_service.dart';
+import '../services/reverse_geocoding_service.dart';
 import '../services/route_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/bottom_panel.dart';
 import '../widgets/driver_arrival_card.dart';
 import '../widgets/map_widget.dart';
 import '../widgets/searching_taxi_sheet.dart';
+import '../widgets/trip_completed_sheet.dart';
+import '../widgets/trip_started_sheet.dart';
 import 'destination_search_screen.dart';
 import 'map_picker_screen.dart';
-import '../widgets/trip_completed_sheet.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
 
   @override
-  State<CustomerHomeScreen> createState() => _CustomerHomeScreenState();
+  State<CustomerHomeScreen> createState() =>
+      _CustomerHomeScreenState();
 }
 
-class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
+class _CustomerHomeScreenState
+    extends State<CustomerHomeScreen> {
+  static const String demoCustomerId =
+      'customer_demo_1';
+
+  RideRequestController? rideRequestController;
+  final DriverLocationRepository driverLocationRepository =
+      DriverLocationRepository();
+  StreamSubscription<LatLng?>? driverLocationSubscription;
+
+  bool acceptedRequestHandled = false;
+  bool driverArrivedHandled = false;
+
   LatLng? currentLocation;
-
   LatLng? pickupLocation;
-  String? pickupAddress;
-
   LatLng? destinationLocation;
+
+  String? pickupAddress;
   String? destinationAddress;
 
   double? distanceKm;
@@ -45,23 +64,316 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     loadLocation();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final nextController =
+        context.read<RideRequestController>();
+
+    if (rideRequestController == nextController) {
+      return;
+    }
+
+    rideRequestController?.removeListener(
+      handleRideRequestChange,
+    );
+
+    rideRequestController = nextController;
+
+    rideRequestController?.addListener(
+      handleRideRequestChange,
+    );
+  }
+
+  @override
+  void dispose() {
+    rideRequestController?.removeListener(
+      handleRideRequestChange,
+    );
+    driverLocationSubscription?.cancel();
+
+    super.dispose();
+  }
+
+  void handleRideRequestChange() {
+    final request =
+        rideRequestController?.currentRequest;
+
+    if (request == null) {
+      acceptedRequestHandled = false;
+      driverArrivedHandled = false;
+      driverLocationSubscription?.cancel();
+      driverLocationSubscription = null;
+      return;
+    }
+
+    if (request.status == 'accepted' &&
+        !acceptedRequestHandled) {
+      acceptedRequestHandled = true;
+
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) async {
+          if (!mounted) return;
+
+          final pickup = pickupLocation;
+
+          if (pickup == null) {
+            _showMessage(
+              'Şoför kabul etti ancak alınacak konum bulunamadı.',
+              isError: true,
+            );
+            return;
+          }
+
+          final acceptedVehicleId =
+              request.acceptedVehicleId;
+          final acceptedDriverId =
+              request.acceptedDriverId;
+
+          if (acceptedVehicleId == null ||
+              acceptedDriverId == null) {
+            _showMessage(
+              'Şoför veya araç bilgisi eksik.',
+              isError: true,
+            );
+            return;
+          }
+
+          final vehicles =
+              getNearbyTaxiVehicles(pickup);
+
+          final vehicle = vehicles.firstWhere(
+            (item) => item.id == acceptedVehicleId,
+            orElse: () => vehicles.first,
+          );
+
+          final driver = Driver(
+            id: acceptedDriverId,
+            firstName: 'Mehmet',
+            lastName: 'Sağlam',
+            phone: '05550000000',
+            photoUrl: '',
+            rating: 4.9,
+            tripCount: 2847,
+            isOnline: true,
+          );
+
+          if (!mounted) return;
+
+          context
+              .read<TaxiController>()
+              .assignAcceptedDriver(
+                driver: driver,
+                vehicle: vehicle,
+                pickupLocation: pickup,
+              );
+
+          _startWatchingDriverLocation(
+            driverId: acceptedDriverId,
+          );
+        },
+      );
+
+      return;
+    }
+
+    if (request.status == 'driver_arrived' &&
+        !driverArrivedHandled) {
+      driverArrivedHandled = true;
+
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) async {
+          if (!mounted) return;
+
+          await context
+              .read<TaxiController>()
+              .markDriverArrived();
+
+          if (!mounted) return;
+
+          final hasVibrator =
+              await Vibration.hasVibrator();
+
+          if (hasVibrator) {
+            await Vibration.vibrate(
+              pattern: [
+                0,
+                250,
+                150,
+                250,
+                150,
+                500,
+              ],
+            );
+          }
+
+          if (!mounted) return;
+
+          await showDialog<void>(
+            context: context,
+            builder: (dialogContext) {
+              return AlertDialog(
+                backgroundColor:
+                    const Color(0xFF171717),
+                icon: const Icon(
+                  Icons.local_taxi,
+                  color: AppColors.yellow,
+                  size: 48,
+                ),
+                title: const Text(
+                  'Şoförünüz Geldi',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                content: const Text(
+                  'Şoförünüz alınacak konumda sizi bekliyor.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    height: 1.4,
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(dialogContext);
+                    },
+                    child: const Text(
+                      'Tamam',
+                      style: TextStyle(
+                        color: AppColors.yellow,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      return;
+    }
+
+    if (request.status == 'trip_started') {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) {
+          if (!mounted) return;
+
+          final distance = distanceKm;
+          final duration = durationMinutes;
+
+          if (routePoints.length < 2 ||
+              distance == null ||
+              duration == null) {
+            _showMessage(
+              'Yolculuk rotası hazır değil.',
+              isError: true,
+            );
+            return;
+          }
+
+          final taxiController =
+              context.read<TaxiController>();
+
+          if (taxiController.tripStarted) {
+            return;
+          }
+
+          taxiController.startTrip(
+            routePoints: routePoints,
+            totalDistanceKm: distance,
+            totalDurationMinutes: duration,
+          );
+
+          _showMessage(
+            'Yolculuğunuz başladı.',
+          );
+        },
+      );
+
+      return;
+    }
+
+    if (request.status == 'trip_completed') {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) {
+          if (!mounted) return;
+
+          _showMessage(
+            'Yolculuk tamamlandı.',
+          );
+        },
+      );
+    }
+  }
+
+  void _startWatchingDriverLocation({
+    required String driverId,
+  }) {
+    driverLocationSubscription?.cancel();
+
+    driverLocationSubscription =
+        driverLocationRepository
+            .watchDriverLocation(driverId)
+            .listen(
+      (location) {
+        if (!mounted || location == null) {
+          return;
+        }
+
+        context
+            .read<TaxiController>()
+            .updateDriverLocation(location);
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+
+        _showMessage(
+          'Şoförün canlı konumu alınamadı: $error',
+          isError: true,
+        );
+      },
+    );
+  }
+
+  Future<void> _stopWatchingDriverLocation() async {
+    await driverLocationSubscription?.cancel();
+    driverLocationSubscription = null;
+  }
+
   Future<void> loadLocation() async {
-    final location = await LocationService.getCurrentLocation();
+    final location =
+        await LocationService.getCurrentLocation();
+
+    if (!mounted) return;
+
+    final resolvedAddress = location == null
+        ? 'Konum alınamadı'
+        : await ReverseGeocodingService.getAddress(
+            location,
+          );
 
     if (!mounted) return;
 
     setState(() {
       currentLocation = location;
-      pickupLocation = location;
-      pickupAddress =
-          location == null ? 'Konum alınamadı' : 'Mevcut konumum';
+      pickupLocation ??= location;
+      pickupAddress ??= resolvedAddress;
     });
   }
 
-  List<TaxiVehicle> getNearbyTaxiVehicles(LatLng center) {
+  List<TaxiVehicle> getNearbyTaxiVehicles(
+    LatLng center,
+  ) {
     return [
       TaxiVehicle(
-        id: 'taxi_1',
+        id: 'vehicle_1',
         plate: '59 ABC 47',
         brand: 'Toyota',
         model: 'Corolla',
@@ -73,7 +385,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         available: true,
       ),
       TaxiVehicle(
-        id: 'taxi_2',
+        id: 'vehicle_2',
         plate: '59 T 1024',
         brand: 'Renault',
         model: 'Megane',
@@ -85,7 +397,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         available: true,
       ),
       TaxiVehicle(
-        id: 'taxi_3',
+        id: 'vehicle_3',
         plate: '59 T 2047',
         brand: 'Fiat',
         model: 'Egea',
@@ -96,34 +408,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         ),
         available: true,
       ),
-      TaxiVehicle(
-        id: 'taxi_4',
-        plate: '59 T 3551',
-        brand: 'Hyundai',
-        model: 'i20',
-        color: 'Sarı',
-        location: LatLng(
-          center.latitude - 0.0024,
-          center.longitude - 0.0013,
-        ),
-        available: true,
-      ),
-      TaxiVehicle(
-        id: 'taxi_5',
-        plate: '59 T 4182',
-        brand: 'Ford',
-        model: 'Focus',
-        color: 'Sarı',
-        location: LatLng(
-          center.latitude + 0.0030,
-          center.longitude + 0.0004,
-        ),
-        available: true,
-      ),
     ];
   }
 
-  Future<void> calculateTripInfo(LatLng destination) async {
+  Future<void> calculateTripInfo(
+    LatLng destination, {
+    String? address,
+  }) async {
     final start = pickupLocation ??
         currentLocation ??
         const LatLng(41.2862, 27.9994);
@@ -138,43 +429,44 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     if (result == null) {
       setState(() {
         destinationLocation = destination;
-        destinationAddress = 'Haritadan seçilen konum';
+        destinationAddress = address ??
+            destinationAddress ??
+            'Haritadan seçilen konum';
         routePoints = [];
         distanceKm = null;
         durationMinutes = null;
         estimatedPrice = null;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Rota hesaplanamadı. Lütfen tekrar deneyin.',
-          ),
-        ),
+      _showMessage(
+        'Rota hesaplanamadı. Lütfen tekrar deneyin.',
+        isError: true,
       );
-
       return;
     }
 
     setState(() {
       destinationLocation = destination;
-      destinationAddress = 'Haritadan seçilen konum';
+      destinationAddress = address ??
+          destinationAddress ??
+          'Haritadan seçilen konum';
       routePoints = result.points;
       distanceKm = result.distanceKm;
       durationMinutes = result.durationMinutes;
-
-      // Geçici demo tarifesi:
-      // 175 TL açılış + kilometre başına 25 TL.
-      estimatedPrice = (175 + (result.distanceKm * 25)).ceil();
+      estimatedPrice =
+          (175 + (result.distanceKm * 25)).ceil();
     });
   }
 
   Future<void> recalculateRouteIfNeeded() async {
     final destination = destinationLocation;
 
-    if (destination != null) {
-      await calculateTripInfo(destination);
-    }
+    if (destination == null) return;
+
+    await calculateTripInfo(
+      destination,
+      address: destinationAddress,
+    );
   }
 
   Future<void> openPickupOptions() async {
@@ -201,7 +493,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   ),
                   title: const Text(
                     'Mevcut konumumu kullan',
-                    style: TextStyle(color: Colors.white),
+                    style:
+                        TextStyle(color: Colors.white),
                   ),
                   onTap: () async {
                     Navigator.pop(sheetContext);
@@ -212,24 +505,29 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
                     if (!mounted) return;
 
-                    if (currentLocation == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Mevcut konum alınamadı.',
-                          ),
-                        ),
+                    final location = currentLocation;
+
+                    if (location == null) {
+                      _showMessage(
+                        'Mevcut konum alınamadı.',
+                        isError: true,
                       );
                       return;
                     }
 
-                    await context
-                        .read<TaxiController>()
-                        .cancelTaxi();
+                    await _cancelActiveTaxiFlow();
+
+                    if (!mounted) return;
+
+                    final address =
+                        await ReverseGeocodingService
+                            .getAddress(location);
+
+                    if (!mounted) return;
 
                     setState(() {
-                      pickupLocation = currentLocation;
-                      pickupAddress = 'Mevcut konumum';
+                      pickupLocation = location;
+                      pickupAddress = address;
                     });
 
                     await recalculateRouteIfNeeded();
@@ -242,7 +540,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   ),
                   title: const Text(
                     'Haritadan alınacak konum seç',
-                    style: TextStyle(color: Colors.white),
+                    style:
+                        TextStyle(color: Colors.white),
                   ),
                   onTap: () async {
                     Navigator.pop(sheetContext);
@@ -251,13 +550,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                         await Navigator.push<LatLng>(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => MapPickerScreen(
-                          initialLocation: pickupLocation ??
-                              currentLocation ??
-                              const LatLng(
-                                41.2862,
-                                27.9994,
-                              ),
+                        builder: (_) =>
+                            MapPickerScreen(
+                          initialLocation:
+                              pickupLocation ??
+                                  currentLocation ??
+                                  const LatLng(
+                                    41.2862,
+                                    27.9994,
+                                  ),
                         ),
                       ),
                     );
@@ -267,14 +568,20 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                       return;
                     }
 
-                    await context
-                        .read<TaxiController>()
-                        .cancelTaxi();
+                    await _cancelActiveTaxiFlow();
+
+                    final address =
+                        await ReverseGeocodingService
+                            .getAddress(
+                      selectedLocation,
+                    );
+
+                    if (!mounted) return;
 
                     setState(() {
-                      pickupLocation = selectedLocation;
-                      pickupAddress =
-                          'Haritadan seçilen alınacak konum';
+                      pickupLocation =
+                          selectedLocation;
+                      pickupAddress = address;
                     });
 
                     await recalculateRouteIfNeeded();
@@ -312,35 +619,34 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   ),
                   title: const Text(
                     'Adres Ara',
-                    style: TextStyle(color: Colors.white),
+                    style:
+                        TextStyle(color: Colors.white),
                   ),
                   onTap: () async {
                     Navigator.pop(sheetContext);
 
-                    final selection =
-    await Navigator.push<PlaceSelection>(
-  context,
-  MaterialPageRoute(
-    builder: (_) =>
-        const DestinationSearchScreen(),
-  ),
-);
+                    final selection = await Navigator
+                        .push<PlaceSelection>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const DestinationSearchScreen(),
+                      ),
+                    );
 
-if (!mounted || selection == null) {
-  return;
-}
+                    if (!mounted ||
+                        selection == null) {
+                      return;
+                    }
 
-await context
-    .read<TaxiController>()
-    .cancelTaxi();
+                    await _cancelActiveTaxiFlow();
 
-setState(() {
-  destinationAddress = selection.address;
-});
+                    if (!mounted) return;
 
-await calculateTripInfo(
-  selection.location,
-);
+                    await calculateTripInfo(
+                      selection.location,
+                      address: selection.address,
+                    );
                   },
                 ),
                 ListTile(
@@ -350,7 +656,8 @@ await calculateTripInfo(
                   ),
                   title: const Text(
                     'Haritadan konum seç',
-                    style: TextStyle(color: Colors.white),
+                    style:
+                        TextStyle(color: Colors.white),
                   ),
                   onTap: () async {
                     Navigator.pop(sheetContext);
@@ -359,7 +666,8 @@ await calculateTripInfo(
                         await Navigator.push<LatLng>(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => MapPickerScreen(
+                        builder: (_) =>
+                            MapPickerScreen(
                           initialLocation:
                               destinationLocation ??
                                   pickupLocation ??
@@ -377,12 +685,19 @@ await calculateTripInfo(
                       return;
                     }
 
-                    await context
-                        .read<TaxiController>()
-                        .cancelTaxi();
+                    await _cancelActiveTaxiFlow();
+
+                    final address =
+                        await ReverseGeocodingService
+                            .getAddress(
+                      selectedLocation,
+                    );
+
+                    if (!mounted) return;
 
                     await calculateTripInfo(
                       selectedLocation,
+                      address: address,
                     );
                   },
                 ),
@@ -397,83 +712,142 @@ await calculateTripInfo(
   Future<void> callTaxi() async {
     final pickup = pickupLocation;
     final destination = destinationLocation;
+    final tripDistance = distanceKm;
+    final tripDuration = durationMinutes;
+    final tripPrice = estimatedPrice;
 
     if (pickup == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Önce alınacak konumu seçin.',
-          ),
-        ),
+      _showMessage(
+        'Önce alınacak konumu seçin.',
       );
       return;
     }
 
     if (destination == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Önce gidilecek konumu haritadan seçin.',
-          ),
-        ),
+      _showMessage(
+        'Önce gidilecek konumu seçin.',
       );
       return;
     }
 
-    final taxis = getNearbyTaxiVehicles(pickup);
+    if (tripDistance == null ||
+        tripDuration == null ||
+        tripPrice == null) {
+      _showMessage(
+        'Rota bilgileri henüz hazır değil.',
+      );
+      return;
+    }
 
-    await context.read<TaxiController>().callTaxi(
-          taxis: taxis,
-          pickupLocation: pickup,
-        );
+    acceptedRequestHandled = false;
+    driverArrivedHandled = false;
+
+    final requestController =
+        context.read<RideRequestController>();
+
+    final requestCreated =
+        await requestController.createRequest(
+      customerId: demoCustomerId,
+      pickupLocation: pickup,
+      pickupAddress:
+          pickupAddress ?? 'Alınacak konum',
+      destinationLocation: destination,
+      destinationAddress:
+          destinationAddress ?? 'Gidilecek konum',
+      distanceKm: tripDistance,
+      durationMinutes: tripDuration,
+      estimatedPrice: tripPrice,
+    );
+
+    if (!mounted) return;
+
+    if (!requestCreated) {
+      _showMessage(
+        requestController.errorMessage ??
+            'Taksi çağrısı oluşturulamadı.',
+        isError: true,
+      );
+      return;
+    }
+
+    _showMessage(
+      'Taksi çağrınız oluşturuldu. Şoför bekleniyor.',
+    );
+  }
+
+  Future<void> _cancelActiveTaxiFlow() async {
+    await _stopWatchingDriverLocation();
+    await context
+        .read<RideRequestController>()
+        .cancelCurrentRequest();
+
+    await context
+        .read<TaxiController>()
+        .cancelTaxi();
+
+    acceptedRequestHandled = false;
+    driverArrivedHandled = false;
   }
 
   void callDriver() {
-    final controller = context.read<TaxiController>();
-    final phone = controller.currentDriver?.phone;
+    final phone = context
+        .read<TaxiController>()
+        .currentDriver
+        ?.phone;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          phone == null
-              ? 'Şoför telefon bilgisi bulunamadı.'
-              : 'Şoför aranıyor: $phone',
-        ),
-      ),
+    _showMessage(
+      phone == null
+          ? 'Şoför telefon bilgisi bulunamadı.'
+          : 'Şoför aranıyor: $phone',
     );
   }
 
   void messageDriver() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Mesajlaşma özelliği yakında eklenecek.',
-        ),
-      ),
+    _showMessage(
+      'Mesajlaşma özelliği yakında eklenecek.',
     );
   }
 
   void shareTrip() {
-    final controller = context.read<TaxiController>();
+    final controller =
+        context.read<TaxiController>();
 
     final driverName =
-        controller.currentDriver?.shortName ?? 'Şoför';
+        controller.currentDriver?.shortName ??
+            'Şoför';
+
     final plate =
-        controller.currentTaxi?.plate ?? 'Plaka bilinmiyor';
+        controller.currentTaxi?.plate ??
+            'Plaka bilinmiyor';
+
+    _showMessage(
+      'Yolculuk paylaşımı hazırlandı: '
+      '$driverName • $plate',
+    );
+  }
+
+  void _showMessage(
+    String message, {
+    bool isError = false,
+  }) {
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          'Yolculuk paylaşımı hazırlandı: '
-          '$driverName • $plate',
-        ),
+        content: Text(message),
+        backgroundColor:
+            isError ? Colors.redAccent : null,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final taxiController = context.watch<TaxiController>();
+    final taxiController =
+        context.watch<TaxiController>();
+
+    final requestController =
+        context.watch<RideRequestController>();
 
     final mapCenter = pickupLocation ??
         currentLocation ??
@@ -485,7 +859,8 @@ await calculateTripInfo(
     final mapTaxiLocations = taxiVehicles
         .where(
           (taxi) =>
-              taxi.id != taxiController.currentTaxi?.id,
+              taxi.id !=
+              taxiController.currentTaxi?.id,
         )
         .map((taxi) => taxi.location)
         .toList();
@@ -504,11 +879,11 @@ await calculateTripInfo(
           MapWidget(
             center: mapCenter,
             currentLocation: mapCenter,
-            destinationLocation: destinationLocation,
+            destinationLocation:
+                destinationLocation,
             taxis: mapTaxiLocations,
             routePoints: routePoints,
           ),
-
           Positioned(
             top: 58,
             left: 20,
@@ -519,7 +894,8 @@ await calculateTripInfo(
               children: [
                 _circleButton(Icons.menu),
                 Container(
-                  padding: const EdgeInsets.symmetric(
+                  padding:
+                      const EdgeInsets.symmetric(
                     horizontal: 18,
                     vertical: 12,
                   ),
@@ -535,7 +911,8 @@ await calculateTripInfo(
                     style: TextStyle(
                       color: AppColors.yellow,
                       fontSize: 20,
-                      fontWeight: FontWeight.w900,
+                      fontWeight:
+                          FontWeight.w900,
                       letterSpacing: 2,
                     ),
                   ),
@@ -544,7 +921,6 @@ await calculateTripInfo(
               ],
             ),
           ),
-
           Positioned(
             right: 20,
             bottom: 245,
@@ -555,13 +931,13 @@ await calculateTripInfo(
               ),
             ),
           ),
-
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
             child: _buildBottomContent(
               taxiController,
+              requestController,
             ),
           ),
         ],
@@ -570,106 +946,127 @@ await calculateTripInfo(
   }
 
   Widget _buildBottomContent(
-    TaxiController controller,
+    TaxiController taxiController,
+    RideRequestController requestController,
   ) {
-    if (controller.isSearching) {
+    final request =
+        requestController.currentRequest;
+
+    if (request?.status == 'searching') {
       return SearchingTaxiSheet(
-        onCancel: () {
-          controller.cancelTaxi();
+        onCancel: _cancelActiveTaxiFlow,
+      );
+    }
+
+    if (taxiController.isSearching) {
+      return SearchingTaxiSheet(
+        onCancel: _cancelActiveTaxiFlow,
+      );
+    }
+
+    if (taxiController.tripCompleted) {
+      return TripCompletedSheet(
+        finalPrice: estimatedPrice ?? 0,
+        onFinish: (
+          int rating,
+          List<String> reasons,
+          String comment,
+        ) async {
+          debugPrint('PUAN: $rating');
+          debugPrint('NEDENLER: $reasons');
+          debugPrint('YORUM: $comment');
+
+          await _stopWatchingDriverLocation();
+          await taxiController.cancelTaxi();
+
+          if (!mounted) return;
+
+          await requestController
+              .clearCurrentRequest();
+
+          if (!mounted) return;
+
+          setState(() {
+            destinationLocation = null;
+            destinationAddress = null;
+            routePoints = [];
+            distanceKm = null;
+            durationMinutes = null;
+            estimatedPrice = null;
+          });
+
+          acceptedRequestHandled = false;
+          driverArrivedHandled = false;
+
+          _showMessage(
+            'Değerlendirmeniz için teşekkür ederiz.',
+          );
         },
       );
     }
-    if (controller.tripCompleted) {
-  return TripCompletedSheet(
-    finalPrice: estimatedPrice ?? 0,
-    onFinish: (
-      int rating,
-      List<String> reasons,
-      String comment,
-    ) async {
-      debugPrint('PUAN: $rating');
-      debugPrint('NEDENLER: $reasons');
-      debugPrint('YORUM: $comment');
 
-      await controller.cancelTaxi();
-
-      if (!mounted) return;
-
-      setState(() {
-        destinationLocation = null;
-        destinationAddress = null;
-        routePoints = [];
-        distanceKm = null;
-        durationMinutes = null;
-        estimatedPrice = null;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Değerlendirmeniz için teşekkür ederiz.',
-          ),
-        ),
+    if (taxiController.tripStarted) {
+      return TripStartedSheet(
+        destination:
+            destinationAddress ??
+                'Gidilecek konum',
+        etaMinutes:
+            taxiController.tripRemainingMinutes,
+        estimatedPrice:
+            estimatedPrice ?? 0,
       );
-    },
-  );
-}
+    }
 
-if (controller.tripStarted) {
-  return TripStartedSheet(
-    destination: destinationAddress ?? 'Gidilecek konum',
-    etaMinutes: controller.tripRemainingMinutes,
-    estimatedPrice: estimatedPrice ?? 0,
-  );
-}
+    final driver =
+        taxiController.currentDriver;
+    final vehicle =
+        taxiController.currentTaxi;
 
-final driver = controller.currentDriver;
-final vehicle = controller.currentTaxi;
-
-    if (controller.driverAccepted &&
+    if (taxiController.driverAccepted &&
         driver != null &&
         vehicle != null) {
-     return DriverArrivalCard(
-  driver: driver,
-  vehicle: vehicle,
-  arrivalMinutes: controller.arrivalMinutes,
-  remainingDistanceKm: controller.remainingDistanceKm,
-  driverArrived: controller.driverArrived,
-  onCall: callDriver,
-  onMessage: messageDriver,
-  onShareTrip: shareTrip,
-  onStartTrip: () {
-  final route = routePoints;
-  final distance = distanceKm;
-  final duration = durationMinutes;
+      return DriverArrivalCard(
+        driver: driver,
+        vehicle: vehicle,
+        arrivalMinutes:
+            taxiController.arrivalMinutes,
+        remainingDistanceKm:
+            taxiController.remainingDistanceKm,
+        driverArrived:
+            taxiController.driverArrived,
+        onCall: callDriver,
+        onMessage: messageDriver,
+        onShareTrip: shareTrip,
+        onStartTrip: () {
+          final route = routePoints;
+          final distance = distanceKm;
+          final duration = durationMinutes;
 
-  if (route.length < 2 ||
-      distance == null ||
-      duration == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Yolculuk rotası hazır değil.',
-        ),
-      ),
-    );
-    return;
-  }
+          if (route.length < 2 ||
+              distance == null ||
+              duration == null) {
+            _showMessage(
+              'Yolculuk rotası hazır değil.',
+              isError: true,
+            );
+            return;
+          }
 
-  controller.startTrip(
-    routePoints: route,
-    totalDistanceKm: distance,
-    totalDurationMinutes: duration,
-  );
-},   
-);
+          taxiController.startTrip(
+            routePoints: route,
+            totalDistanceKm: distance,
+            totalDurationMinutes: duration,
+          );
+        },
+      );
     }
 
     return BottomPanel(
       hasCurrentLocation:
           pickupLocation != null,
       pickupAddress: pickupAddress,
-      destinationAddress: destinationAddress,
+      destinationAddress:
+          destinationAddress,
       distanceKm: distanceKm,
       durationMinutes: durationMinutes,
       estimatedPrice: estimatedPrice,
