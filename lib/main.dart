@@ -5,8 +5,9 @@ import 'package:provider/provider.dart';
 import 'controllers/taxi_controller.dart';
 import 'firebase_options.dart';
 import 'screens/customer_home_screen.dart';
-import 'screens/driver_shift_screen.dart';
 import 'screens/driver_registration_screen.dart';
+import 'controllers/driver_registration_controller.dart';
+
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,10 +19,13 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider<TaxiController>(
-          create: (_) => TaxiController(),
-        ),
-      ],
+  ChangeNotifierProvider<TaxiController>(
+    create: (_) => TaxiController(),
+  ),
+  ChangeNotifierProvider<DriverRegistrationController>(
+    create: (_) => DriverRegistrationController(),
+  ),
+],
       child: const TaksioApp(),
     ),
   );

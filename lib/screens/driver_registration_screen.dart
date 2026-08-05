@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../controllers/driver_registration_controller.dart';
 import '../theme/app_colors.dart';
 import 'driver_shift_screen.dart';
 
@@ -22,7 +24,6 @@ class _DriverRegistrationScreenState
   final identityNumberController = TextEditingController();
 
   bool documentsAccepted = false;
-  bool isSubmitting = false;
 
   @override
   void dispose() {
@@ -44,33 +45,36 @@ class _DriverRegistrationScreenState
       return;
     }
 
-    if (!documentsAccepted) {
+    final controller =
+        context.read<DriverRegistrationController>();
+
+    final success = await controller.registerDriver(
+      firstName: firstNameController.text,
+      lastName: lastNameController.text,
+      phone: phoneController.text,
+      identityNumber: identityNumberController.text,
+      licenseNumber: licenseNumberController.text,
+      documentsAccepted: documentsAccepted,
+    );
+
+    if (!mounted) return;
+
+    if (!success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Devam etmek için beyan ve onay kutusunu işaretleyin.',
+            controller.errorMessage ??
+                'Şoför kaydı tamamlanamadı.',
           ),
+          backgroundColor: Colors.redAccent,
         ),
       );
       return;
     }
 
-    setState(() {
-      isSubmitting = true;
-    });
-
-    await Future<void>.delayed(
-      const Duration(seconds: 1),
-    );
-
-    if (!mounted) return;
-
-    setState(() {
-      isSubmitting = false;
-    });
-
     await showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder: (dialogContext) {
         return AlertDialog(
           backgroundColor: const Color(0xFF171717),
@@ -82,8 +86,8 @@ class _DriverRegistrationScreenState
             ),
           ),
           content: const Text(
-            'Şoför bilgileriniz inceleme için kaydedildi. '
-            'Demo sürümünde onay otomatik verilecektir.',
+            'Şoför bilgileriniz Firebase sistemine kaydedildi. '
+            'Belgeleriniz yönetici onayına gönderilecektir.',
             style: TextStyle(
               color: Colors.white70,
               height: 1.4,
@@ -95,7 +99,7 @@ class _DriverRegistrationScreenState
                 Navigator.pop(dialogContext);
               },
               child: const Text(
-                'Tamam',
+                'Devam Et',
                 style: TextStyle(
                   color: AppColors.yellow,
                   fontWeight: FontWeight.w800,
@@ -119,6 +123,9 @@ class _DriverRegistrationScreenState
 
   @override
   Widget build(BuildContext context) {
+    final registrationController =
+        context.watch<DriverRegistrationController>();
+
     return Scaffold(
       backgroundColor: AppColors.black,
       appBar: AppBar(
@@ -190,9 +197,9 @@ class _DriverRegistrationScreenState
                 keyboardType: TextInputType.phone,
                 hintText: '5XX XXX XX XX',
                 validator: (value) {
-                  final digits = value
-                          ?.replaceAll(RegExp(r'\D'), '') ??
-                      '';
+                  final digits =
+                      value?.replaceAll(RegExp(r'\D'), '') ??
+                          '';
 
                   if (digits.length < 10) {
                     return 'Geçerli bir telefon numarası girin.';
@@ -211,7 +218,9 @@ class _DriverRegistrationScreenState
                 keyboardType: TextInputType.number,
                 maxLength: 11,
                 validator: (value) {
-                  final digits = value?.trim() ?? '';
+                  final digits =
+                      value?.replaceAll(RegExp(r'\D'), '') ??
+                          '';
 
                   if (digits.length != 11) {
                     return 'T.C. kimlik numarası 11 haneli olmalı.';
@@ -257,11 +266,16 @@ class _DriverRegistrationScreenState
 
               CheckboxListTile(
                 value: documentsAccepted,
-                onChanged: (value) {
-                  setState(() {
-                    documentsAccepted = value ?? false;
-                  });
-                },
+                onChanged: registrationController.isSubmitting
+                    ? null
+                    : (value) {
+                        setState(() {
+                          documentsAccepted =
+                              value ?? false;
+                        });
+
+                        registrationController.clearError();
+                      },
                 activeColor: AppColors.yellow,
                 checkColor: Colors.black,
                 contentPadding: EdgeInsets.zero,
@@ -278,13 +292,40 @@ class _DriverRegistrationScreenState
                 ),
               ),
 
+              if (registrationController.errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(
+                      alpha: 0.12,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: Colors.redAccent.withValues(
+                        alpha: 0.45,
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    registrationController.errorMessage!,
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 18),
 
               SizedBox(
                 height: 56,
                 child: ElevatedButton(
                   onPressed:
-                      isSubmitting ? null : submitRegistration,
+                      registrationController.isSubmitting
+                          ? null
+                          : submitRegistration,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.yellow,
                     foregroundColor: Colors.black,
@@ -293,7 +334,7 @@ class _DriverRegistrationScreenState
                       borderRadius: BorderRadius.circular(18),
                     ),
                   ),
-                  child: isSubmitting
+                  child: registrationController.isSubmitting
                       ? const SizedBox(
                           width: 24,
                           height: 24,
@@ -387,7 +428,8 @@ class _DriverRegistrationScreenState
       ),
       validator: validator ??
           (value) {
-            if (value == null || value.trim().isEmpty) {
+            if (value == null ||
+                value.trim().isEmpty) {
               return 'Bu alan zorunludur.';
             }
 
